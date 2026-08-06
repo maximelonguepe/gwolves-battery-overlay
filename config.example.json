@@ -1,0 +1,38 @@
+{
+  "device": {
+    "vendor_id": "0x33E4",
+    "product_id": "0x3517",
+    "feature_report_length": 65,
+    "device_id": 2
+  },
+  "polling": {
+    "interval_seconds": 120,
+    "retries": 4,
+    "response_delay_ms": 100
+  },
+  "overlay": {
+    "style": "pill",
+    "x": 40,
+    "y": 40,
+    "font_family": "Segoe UI",
+    "font_size": 20,
+    "opacity": 0.92,
+    "always_on_top": true
+  },
+  "colors": {
+    "thresholds": [
+      { "max": 15, "color": "#ff5f57" },
+      { "max": 30, "color": "#ffb340" },
+      { "max": 100, "color": "#4ade80" }
+    ],
+    "unknown": "#6b7078",
+    "background": "#15161a",
+    "border": "#2c2f36",
+    "track": "#24262c",
+    "cell_background": "#0c0d10",
+    "cell_border": "#4a4f59",
+    "text": "#f0f2f5",
+    "charging": "#ffe066",
+    "outline": "#000000"
+  }
+}

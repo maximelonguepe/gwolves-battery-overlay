@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Local user configuration (never commit)
+config.json
+
+# Tooling / editors
+.claude/
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+desktop.ini

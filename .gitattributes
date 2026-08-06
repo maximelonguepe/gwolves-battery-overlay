@@ -1,0 +1,7 @@
+# Normalise line endings in the repository; check out native on Windows.
+* text=auto
+
+*.py   text diff=python
+*.pyw  text diff=python
+*.md   text
+*.json text
