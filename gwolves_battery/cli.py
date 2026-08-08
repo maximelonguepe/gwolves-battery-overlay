@@ -38,7 +38,9 @@ def build_parser():
 
     device = parser.add_argument_group("device")
     device.add_argument("--vid", metavar="ID", help="vendor ID, e.g. 0x33E4")
-    device.add_argument("--pid", metavar="ID", help="product ID, e.g. 0x3517")
+    device.add_argument("--pid", metavar="ID",
+                        help="product ID; comma-separated to try several, "
+                             "e.g. 0x3517,0x3508 for dongle then wired")
     device.add_argument("--device-id", type=int, metavar="N",
                         help="protocol deviceID byte (default 2)")
     device.add_argument("--feature-length", type=int, metavar="N",
@@ -61,7 +63,8 @@ def apply_overrides(cfg, args):
     if args.vid:
         device["vendor_id"] = args.vid
     if args.pid:
-        device["product_id"] = args.pid
+        parts = [p.strip() for p in args.pid.split(",") if p.strip()]
+        device["product_id"] = parts if len(parts) > 1 else parts[0]
     if args.device_id is not None:
         device["device_id"] = args.device_id
     if args.feature_length is not None:
@@ -118,17 +121,23 @@ def _hex(frame, count=12):
 
 
 def cmd_raw(cfg):
-    from .protocol import read_raw
-    frame = read_raw(cfg)
-    if frame is None:
+    from .protocol import find_device, read_raw
+    info = find_device(cfg)
+    if info is None:
         print("Mouse not found or powered off.", file=sys.stderr)
         return 1
+    frame = read_raw(cfg, info)
+    if frame is None:
+        print("Device found but it did not answer.", file=sys.stderr)
+        return 1
+    print("device: 0x%04X:0x%04X  %s" % (info.vendor_id, info.product_id,
+                                         info.product or ""))
     print("raw   : %s" % _hex(frame, 16))
     print("index :  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15")
     print("\nheader   raw[1] = 0x%02X" % frame[1])
     print("echo     raw[6] = 0x%02X" % frame[6])
-    print("raw[7]          = %d   (assumed charging flag, unconfirmed)"
-          % frame[7])
+    print("raw[7]          = %d   (%s)"
+          % (frame[7], "charging" if frame[7] else "on battery"))
     print("raw[8]          = %d   (battery percentage)" % frame[8])
     return 0
 

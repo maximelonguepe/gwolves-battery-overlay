@@ -1,4 +1,4 @@
-# Battery protocol (`mouse.xyz` web driver)
+﻿# Battery protocol (`mouse.xyz` web driver)
 
 This document describes the HID protocol used to read the battery level of
 wireless mice driven by the **[mouse.xyz](https://mouse.xyz)** web driver.
@@ -69,8 +69,11 @@ Read with `HidD_GetFeature` / `receiveFeatureReport(0)` after ~100 ms.
 | header | 1 | `0xA1` — marks a valid response |
 | — | 4 | `0x02` |
 | echo | 6 | `0x83` — command echo |
-| charging | 7 | `0` = on battery, non-zero = charging |
+| charging | 7 | `0` = on battery, `1` = charging |
 | **level** | **8** | **percentage, 0–100** |
+
+Both fields are confirmed on hardware: `raw[7] = 0` with `raw[8] = 100` on
+battery, and `raw[7] = 1` with `raw[8] = 95` with the cable plugged in.
 
 Real sample: `raw[8] = 0x3C = 60`, at the very moment the official interface
 displayed 60 %. The driver rounds its display to 5 % steps, but the value on
@@ -83,7 +86,28 @@ The JavaScript tests two alignments (`a[1]==0xA1` **or** `a[0]==0xA1`) because
 implementation. With the Win32 API the report ID is **always** present at
 offset 0, so only `raw[1] == 0xA1` is relevant.
 
-## 4. General command convention
+## 4. The product ID changes when the cable is plugged in
+
+This one is easy to miss and makes a tool appear broken exactly when the
+battery matters most.
+
+Plugging the USB cable in does not simply add a second connection: the mouse
+**stops answering through its dongle** and enumerates as a different product.
+On the reference hardware:
+
+| Connection | VID:PID |
+|---|---|
+| 2.4 GHz dongle | `0x33E4:0x3517` |
+| USB cable (wired) | `0x33E4:0x3508` |
+
+The dongle's interfaces disappear from enumeration entirely, so a tool that
+only knows the wireless PID goes silent the moment charging starts. The
+protocol itself is unchanged — same vendor interface, same `0x83` command,
+same response layout.
+
+This is why `product_id` accepts a list of candidates, tried in order.
+
+## 5. General command convention
 
 The command byte follows a clear rule throughout the protocol:
 
@@ -97,7 +121,7 @@ The command byte follows a clear rule throughout the protocol:
 > project only ever issues `0x83`. Never sweep command numbers at random on a
 > real device.
 
-## 5. Variants not implemented
+## 6. Variants not implemented
 
 The bundle contains two other protocol families, present for other hardware
 generations:
@@ -110,7 +134,7 @@ generations:
 Neither is needed for the hardware targeted here, but they are worth trying if
 your mouse does not answer `0x83`.
 
-## 6. Win32 implementation notes
+## 7. Win32 implementation notes
 
 Two pitfalls worth recording for anyone reimplementing this:
 

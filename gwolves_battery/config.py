@@ -11,7 +11,11 @@ DEFAULTS = {
         # Run `python -m gwolves_battery --list-devices` to find the
         # identifiers of a different mouse.
         "vendor_id": "0x33E4",
-        "product_id": "0x3517",
+        # A mouse usually changes product ID when plugged in: it stops
+        # answering through its dongle and enumerates in wired mode instead.
+        # Candidates are tried in order; a single value is also accepted.
+        #   0x3517 = 2.4 GHz dongle, 0x3508 = wired
+        "product_id": ["0x3517", "0x3508"],
         # HID feature report size, report ID included. 65 = 1 + 64.
         "feature_report_length": 65,
         # Protocol deviceID byte (payload[2]). 2 means the mouse itself.
@@ -124,6 +128,13 @@ def as_int(value):
         return value
     text = str(value).strip()
     return int(text, 16) if text.lower().startswith("0x") else int(text, 10)
+
+
+def as_int_list(value):
+    """Accept a scalar or a list, return a list of ints."""
+    if isinstance(value, (list, tuple)):
+        return [as_int(v) for v in value]
+    return [as_int(value)]
 
 
 def level_color(pct, colors):

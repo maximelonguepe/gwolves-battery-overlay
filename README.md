@@ -73,7 +73,7 @@ with its default.
 | Key | Default | Description |
 |---|---|---|
 | `vendor_id` | `"0x33E4"` | Vendor ID. Accepts `"0x33E4"` or `13284`. |
-| `product_id` | `"0x3517"` | Product ID. |
+| `product_id` | `["0x3517", "0x3508"]` | Product ID, or a list tried in order. A mouse usually changes ID when plugged in: `0x3517` is the dongle, `0x3508` wired. |
 | `feature_report_length` | `65` | Feature report size, report ID included. |
 | `device_id` | `2` | Protocol `deviceID` byte. `2` is the mouse. |
 
@@ -173,13 +173,12 @@ a real device.
 - **Windows only.** The HID backend calls the Win32 API. A Linux port over
   `hidraw` would be straightforward but is not done.
 - **One device at a time.**
-- **The charging flag (`raw[7]`) is unconfirmed.** It read `0` in every sample
-  taken so far, including at 100 %. The web driver returns it as part of a
-  `[raw[7], raw[8]]` pair but ships no code that consumes the pair, so its
-  meaning cannot be settled from the bundle either. Use `--watch-raw` with the
-  cable plugged in and the battery below ~95 % to locate the real byte on your
-  hardware — at full charge the charging circuit stops, so the flag would read
-  `0` regardless.
+- **Overlays do not show over exclusive-fullscreen games.** Windows draws
+  those above every other window, "always on top" included. Switch the game to
+  borderless windowed mode if you need the level visible while playing.
+- If your mouse answers on one connection but not the other, add its wired
+  product ID to the `product_id` list — `--list-devices` shows it while the
+  cable is plugged in.
 - Tkinter rendering is not antialiased, so rounded corners can look slightly
   jagged at large sizes.
 

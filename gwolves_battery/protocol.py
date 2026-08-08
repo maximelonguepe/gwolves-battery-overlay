@@ -61,24 +61,38 @@ def parse_response(raw):
     return BatteryStatus(percent, bool(raw[7]))
 
 
+def find_device(cfg):
+    """Locate the control interface, trying every configured product ID.
+
+    A mouse typically switches product ID when plugged in (its dongle stops
+    answering), so several candidates may be configured.
+    """
+    from .config import as_int, as_int_list
+
+    dev = cfg["device"]
+    vid = as_int(dev["vendor_id"])
+    flen = int(dev["feature_report_length"])
+    for pid in as_int_list(dev["product_id"]):
+        info = find_control_interface(vid, pid, flen)
+        if info is not None:
+            return info
+    return None
+
+
 def read_raw(cfg, device_info=None):
     """Return the raw response frame, for protocol diagnostics.
 
     Useful to identify which byte carries a piece of state on a model whose
     layout differs, or has not been confirmed yet.
     """
-    from .config import as_int
-
     dev = cfg["device"]
     poll = cfg["polling"]
-    info = device_info or find_control_interface(
-        as_int(dev["vendor_id"]), as_int(dev["product_id"]),
-        int(dev["feature_report_length"]))
+    info = device_info or find_device(cfg)
     if info is None:
         return None
 
-    length = min(int(dev["feature_report_length"]),
-                 info.feature_length or int(dev["feature_report_length"]))
+    flen = int(dev["feature_report_length"])
+    length = min(flen, info.feature_length or flen)
     request = build_request(int(dev["device_id"]), length)
     delay = max(0.0, float(poll["response_delay_ms"]) / 1000.0)
     try:
@@ -102,18 +116,13 @@ def read_battery(cfg, device_info=None):
 
     `cfg` is the full configuration; passing `device_info` skips re-enumeration.
     """
-    from .config import as_int
-
     dev = cfg["device"]
     poll = cfg["polling"]
-    vid = as_int(dev["vendor_id"])
-    pid = as_int(dev["product_id"])
-    flen = int(dev["feature_report_length"])
-
-    info = device_info or find_control_interface(vid, pid, flen)
+    info = device_info or find_device(cfg)
     if info is None:
         return None
 
+    flen = int(dev["feature_report_length"])
     length = min(flen, info.feature_length or flen)
     request = build_request(int(dev["device_id"]), length)
     delay = max(0.0, float(poll["response_delay_ms"]) / 1000.0)
