@@ -212,6 +212,8 @@ class Overlay(object):
                                  by + cell_h - 2, 2,
                                  fill=cfgmod.level_color(pct, colors),
                                  outline="")
+        # The cell is large enough to carry a glyph, so this style keeps the
+        # bolt; only the ring signals charging through colour.
         if charging:
             self._bolt(bx + cell_w / 2.0, height / 2.0, cell_h * 1.15)
 
@@ -238,13 +240,12 @@ class Overlay(object):
         if pct:
             self.canvas.create_arc(*box, start=90, extent=-359.9 * pct / 100.0,
                                    style="arc", width=thick,
-                                   outline=cfgmod.level_color(pct, colors))
+                                   outline=cfgmod.status_color(pct, charging,
+                                                               colors))
 
         self.canvas.create_text(side // 2, side // 2,
                                 text="--" if pct is None else str(pct),
                                 font=self._font(0.85), fill=colors["text"])
-        if charging:
-            self._bolt(side / 2.0, side - pad - thick - size * 0.30, size * 0.62)
 
     def _draw_minimal(self, pct, charging):
         colors = self._colors()

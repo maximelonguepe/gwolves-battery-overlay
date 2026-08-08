@@ -51,7 +51,9 @@ DEFAULTS = {
         "cell_background": "#0c0d10",
         "cell_border": "#4a4f59",
         "text": "#f0f2f5",
-        "charging": "#ffe066",
+        # Used for the level itself while charging, in place of the
+        # threshold colour.
+        "charging": "#ffd60a",
         "outline": "#000000",
     },
 }
@@ -102,7 +104,9 @@ def load(path=None):
     path = path or default_config_path()
     raw = {}
     try:
-        with open(path, "r", encoding="utf-8") as handle:
+        # utf-8-sig strips a BOM when present and behaves like utf-8 otherwise.
+        # Notepad and PowerShell both write one, and json.load chokes on it.
+        with open(path, "r", encoding="utf-8-sig") as handle:
             raw = json.load(handle)
     except FileNotFoundError:
         pass
@@ -144,3 +148,15 @@ def level_color(pct, colors):
         if pct <= rule["max"]:
             return rule["color"]
     return colors["thresholds"][-1]["color"]
+
+
+def status_color(pct, charging, colors):
+    """Colour for the current state, used by the ring style.
+
+    The ring has no room for a legible glyph inside its stroke, so it signals
+    charging through the arc colour instead. The other styles keep the bolt
+    and stay on `level_color`.
+    """
+    if charging:
+        return colors["charging"]
+    return level_color(pct, colors)
