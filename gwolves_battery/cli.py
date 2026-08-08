@@ -28,6 +28,13 @@ def build_parser():
                          help="list HID interfaces to find your VID/PID")
     actions.add_argument("--dump-config", action="store_true",
                          help="print the effective configuration as JSON")
+    actions.add_argument("--raw", action="store_true",
+                         help="print the raw response frame once, for diagnostics")
+    actions.add_argument("--watch-raw", type=int, metavar="SECONDS",
+                         nargs="?", const=120,
+                         help="sample raw frames and report which bytes change "
+                              "(default 120s); plug or unplug the cable while "
+                              "it runs to locate the charging byte")
 
     device = parser.add_argument_group("device")
     device.add_argument("--vid", metavar="ID", help="vendor ID, e.g. 0x33E4")
@@ -106,6 +113,67 @@ def cmd_once(cfg):
     return 0
 
 
+def _hex(frame, count=12):
+    return " ".join("%02X" % b for b in frame[:count])
+
+
+def cmd_raw(cfg):
+    from .protocol import read_raw
+    frame = read_raw(cfg)
+    if frame is None:
+        print("Mouse not found or powered off.", file=sys.stderr)
+        return 1
+    print("raw   : %s" % _hex(frame, 16))
+    print("index :  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15")
+    print("\nheader   raw[1] = 0x%02X" % frame[1])
+    print("echo     raw[6] = 0x%02X" % frame[6])
+    print("raw[7]          = %d   (assumed charging flag, unconfirmed)"
+          % frame[7])
+    print("raw[8]          = %d   (battery percentage)" % frame[8])
+    return 0
+
+
+def cmd_watch_raw(cfg, duration):
+    import time
+    from .protocol import read_raw
+
+    interval = 3
+    print("Sampling for %ds every %ds. Plug or unplug the cable while it runs."
+          % (duration, interval))
+    print("A conclusive test needs the battery below ~95%: at full charge the\n"
+          "charging circuit stops, so a charging flag would read 0 anyway.\n")
+
+    samples = []
+    start = time.time()
+    try:
+        while time.time() - start < duration:
+            frame = read_raw(cfg)
+            stamp = time.strftime("%H:%M:%S")
+            if frame is None:
+                print("%s  no response (mouse asleep?)" % stamp)
+            else:
+                print("%s  %s   -> [7]=%-3d [8]=%-3d"
+                      % (stamp, _hex(frame), frame[7], frame[8]))
+                samples.append(bytes(frame[:16]))
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        pass
+
+    print()
+    if len(samples) < 2:
+        print("Not enough valid samples to compare.")
+        return 1
+    changed = [(i, sorted({s[i] for s in samples})) for i in range(16)]
+    changed = [(i, v) for i, v in changed if len(v) > 1]
+    if not changed:
+        print("No byte changed across %d samples." % len(samples))
+        return 0
+    print("Bytes that changed:")
+    for i, values in changed:
+        print("   raw[%d] : %s" % (i, " -> ".join(str(v) for v in values)))
+    return 0
+
+
 def cmd_watch(cfg):
     import time
     interval = max(5, int(cfg["polling"]["interval_seconds"]))
@@ -141,6 +209,10 @@ def main(argv=None):
         print("# effective configuration (file: %s)" % path)
         print(json.dumps(cfg, indent=2, ensure_ascii=False))
         return 0
+    if args.raw:
+        return cmd_raw(cfg)
+    if args.watch_raw is not None:
+        return cmd_watch_raw(cfg, args.watch_raw)
     if args.once:
         return cmd_once(cfg)
     if args.watch:

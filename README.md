@@ -123,6 +123,8 @@ Any command-line option takes precedence over the config file.
 --watch                 print continuously to the console, no overlay
 --list-devices          list present HID interfaces
 --dump-config           print the effective configuration
+--raw                   print the raw response frame once
+--watch-raw [SECONDS]   sample raw frames and report which bytes change
 --config PATH           use an alternate configuration file
 --no-save               never write settings to disk
 
@@ -171,9 +173,13 @@ a real device.
 - **Windows only.** The HID backend calls the Win32 API. A Linux port over
   `hidraw` would be straightforward but is not done.
 - **One device at a time.**
-- **The charging flag (`raw[7]`) is barely tested**: it read `0` on battery
-  during development, and the charging behaviour is inferred from the driver's
-  code rather than observed.
+- **The charging flag (`raw[7]`) is unconfirmed.** It read `0` in every sample
+  taken so far, including at 100 %. The web driver returns it as part of a
+  `[raw[7], raw[8]]` pair but ships no code that consumes the pair, so its
+  meaning cannot be settled from the bundle either. Use `--watch-raw` with the
+  cable plugged in and the battery below ~95 % to locate the real byte on your
+  hardware — at full charge the charging circuit stops, so the flag would read
+  `0` regardless.
 - Tkinter rendering is not antialiased, so rounded corners can look slightly
   jagged at large sizes.
 

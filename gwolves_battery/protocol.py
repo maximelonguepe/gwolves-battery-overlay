@@ -61,6 +61,42 @@ def parse_response(raw):
     return BatteryStatus(percent, bool(raw[7]))
 
 
+def read_raw(cfg, device_info=None):
+    """Return the raw response frame, for protocol diagnostics.
+
+    Useful to identify which byte carries a piece of state on a model whose
+    layout differs, or has not been confirmed yet.
+    """
+    from .config import as_int
+
+    dev = cfg["device"]
+    poll = cfg["polling"]
+    info = device_info or find_control_interface(
+        as_int(dev["vendor_id"]), as_int(dev["product_id"]),
+        int(dev["feature_report_length"]))
+    if info is None:
+        return None
+
+    length = min(int(dev["feature_report_length"]),
+                 info.feature_length or int(dev["feature_report_length"]))
+    request = build_request(int(dev["device_id"]), length)
+    delay = max(0.0, float(poll["response_delay_ms"]) / 1000.0)
+    try:
+        with HidDevice(info.path) as handle:
+            for _ in range(max(1, int(poll["retries"]))):
+                if not handle.set_feature(request):
+                    time.sleep(0.05)
+                    continue
+                time.sleep(delay)
+                raw = handle.get_feature(length)
+                if raw is not None and raw[1] == RESPONSE_HEADER:
+                    return raw
+                time.sleep(0.05)
+    except OSError:
+        return None
+    return None
+
+
 def read_battery(cfg, device_info=None):
     """Read the battery level. Returns a BatteryStatus, or None if unavailable.
 
