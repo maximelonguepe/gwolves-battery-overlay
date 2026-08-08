@@ -8,9 +8,10 @@ It was reconstructed by reading the site's public JavaScript bundle
 USB capture was needed: the driver's code is shipped in the clear to the
 browser.
 
-Verified on a **G-Wolves Fenrir/Lycan Asym 8K** (`0x33E4:0x3517`) over the
-2.4 GHz dongle. Since `mouse.xyz` is a *white-label* driver shared by several
-brands, the protocol likely applies to other models too.
+Verified on a **G-Wolves Fenrir/Lycan Asym 8K** (`0x33E4:0x3517` over the
+2.4 GHz dongle, `0x33E4:0x3508` wired). `mouse.xyz` is a *white-label* driver
+shared by several brands, and the protocol has since been reported working on
+an **HSK Pro** as well, so it is not specific to one vendor.
 
 ---
 

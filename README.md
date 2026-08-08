@@ -13,6 +13,10 @@ talking to the mouse's vendor interface.
   No `hidapi`, no `pywin32`, no compiler.
 - **Read-only.** A single command is ever sent, `0x83`, the same one the
   official driver uses. The device is never written to.
+- **Keeps reading while charging.** Plugging the cable in makes the mouse
+  switch product ID and drop its dongle, which is enough to blind a tool that
+  only knows the wireless one. Both are tried, so the level stays visible and
+  the charging state is reported.
 - **Fully configurable**: VID/PID, colours, thresholds, style, position,
   interval — through a config file or the command line.
 
@@ -27,10 +31,16 @@ The protocol, undocumented publicly until now, is written up in
 ## Quick start
 
 ```bash
-git clone https://github.com/<user>/gwolves-battery-overlay.git
-cd gwolves-battery-overlay
-python -m gwolves_battery --once
+git clone https://github.com/maximelonguepe/gwolves-battery-overlay.git
 ```
+
+```bash
+cd gwolves-battery-overlay && python -m gwolves_battery --once
+```
+
+> **Wake the mouse first.** A sleeping mouse answers nothing, and the tool
+> cannot tell that apart from an unsupported device. Move it, click it, then
+> run the command.
 
 If a level is printed, start the overlay:
 
@@ -41,7 +51,21 @@ pythonw overlay.pyw
 - **Left-click and drag** to move it (the position is remembered)
 - **Right-click** for style, size, opacity, refresh and quit
 
+## Tested hardware
+
+| Mouse | Status |
+|---|---|
+| G-Wolves Fenrir / Lycan Asym 8K (`0x33E4:0x3517` dongle, `0x33E4:0x3508` wired) | reference device, wireless and charging both verified |
+| HSK Pro | reported working by a user |
+
+`mouse.xyz` is a white-label driver shared by several brands, so other models
+are likely to work. If yours does, a pull request adding it to this table is
+welcome.
+
 ## Your mouse is not detected?
+
+**Check the mouse is awake first** — a sleeping mouse answers nothing, and
+that looks exactly like an unsupported device.
 
 The defaults target `0x33E4:0x3517`. For any other model:
 
@@ -170,6 +194,9 @@ a real device.
 
 ## Known limitations
 
+- **A sleeping mouse reads as absent.** There is no way to tell "asleep" from
+  "not there" over this protocol, so the overlay shows `--%` until the mouse
+  wakes up, then recovers on its own.
 - **Windows only.** The HID backend calls the Win32 API. A Linux port over
   `hidraw` would be straightforward but is not done.
 - **One device at a time.**
