@@ -8,10 +8,22 @@ It was reconstructed by reading the site's public JavaScript bundle
 USB capture was needed: the driver's code is shipped in the clear to the
 browser.
 
-Verified on a **G-Wolves Fenrir/Lycan Asym 8K** (`0x33E4:0x3517` over the
-2.4 GHz dongle, `0x33E4:0x3508` wired). `mouse.xyz` is a *white-label* driver
-shared by several brands, and the protocol has since been reported working on
-an **HSK Pro** as well, so it is not specific to one vendor.
+Two unrelated protocol families are in use, and a device speaks exactly
+one of them:
+
+| Family | Transport | Verified on |
+|---|---|---|
+| `feature` (sections 1–5) | 65-byte feature reports | G-Wolves Fenrir/Lycan Asym 8K — `0x33E4:0x3517` dongle, `0x33E4:0x3508` wired |
+| `compx` (section 6) | 17-byte interrupt reports, report ID 8 | G-Wolves Receiver RS — `0x33E4:0x3854` (Fenrir Pro) |
+
+Which one a device speaks is visible from its HID descriptors alone: the
+`feature` family exposes a 65-byte feature report, the `compx` family exposes
+a vendor interface with 17-byte input *and* output reports. Neither exposes
+the other.
+
+`mouse.xyz` is a *white-label* driver shared by several brands, and the
+`feature` protocol has been reported working on an **HSK Pro** as well, so it
+is not specific to one vendor.
 
 ---
 
@@ -122,20 +134,69 @@ The command byte follows a clear rule throughout the protocol:
 > project only ever issues `0x83`. Never sweep command numbers at random on a
 > real device.
 
-## 6. Variants not implemented
+## 6. The compx family
 
-The bundle contains two other protocol families, present for other hardware
-generations:
+Newer hardware speaks an unrelated protocol. The G-Wolves **Receiver RS**
+(`0x33E4:0x3854`, the Fenrir Pro dongle) exposes **no 65-byte feature report
+at all**, so everything above simply does not apply to it.
 
-- **Legacy protocol** (`getOldBattery`): `payload[1]=2`, `payload[2]=0x8F`,
-  response `0xA1 0x02 0x8F` followed by two bytes.
-- **Compx family**: 16-byte reports, command `0x04`, with an extra 16-bit
-  field at offsets 7–8 that looks like a voltage in mV.
+Instead it exchanges **interrupt reports under report ID 8** on a vendor
+interface whose input and output reports are both **17 bytes** (1 report ID +
+16 payload). The reply arrives as an *input report*, not as the answer to a
+read.
 
-Neither is needed for the hardware targeted here, but they are worth trying if
-your mouse does not answer `0x83`.
+### Frame
 
-## 7. Win32 implementation notes
+```
+payload[0]  = 0x04      command: read battery
+payload[15] = checksum
+```
+
+The checksum is the driver's `get_Crc` minus the report ID, truncated to a
+byte:
+
+```
+crc      = 85 - (sum(payload[0..14]) & 0xFF)
+payload[15] = (crc - 8) & 0xFF
+```
+
+For the battery command the payload is zero apart from `[0] = 4`, so the
+checksum is `(85 - 4 - 8) & 0xFF = 0x49`.
+
+### Reply
+
+```
+08 04 00 00 00 02 5A 00 0F E3 00 00 00 00 00 00
+^^ ^^             ^^ ^^ ^^^^^
+|  echo           |  |  voltage
+|                 |  charging
+report ID         percentage
+```
+
+| Field | Offset (report ID included) | Description |
+|---|---|---|
+| echo | 1 | `0x04` — marks the matching reply |
+| **level** | **6** | **percentage, 0–100** |
+| charging | 7 | `0` = on battery, `1` = charging |
+| voltage | 8–9 | battery voltage in **mV**, big endian |
+
+The driver computes the voltage — `(data[7] << 8) + data[8]` — and then
+discards it without using it. Real sample: `0x0FE3` = 4067 mV at 90 %,
+consistent with a Li-ion cell.
+
+Matching a reply is done by waiting for an input report whose first payload
+byte equals the command byte, exactly as `retrySetGetWithDelayCompx` does.
+Arm the read *before* writing: the device can answer faster than the write
+call returns.
+
+## 7. Variant not implemented
+
+The bundle also carries a **legacy protocol** (`getOldBattery`):
+`payload[1]=2`, `payload[2]=0x8F`, response `0xA1 0x02 0x8F` followed by two
+bytes. No hardware on hand needs it, but it is worth trying if a mouse answers
+neither `0x83` nor the compx command.
+
+## 8. Win32 implementation notes
 
 Two pitfalls worth recording for anyone reimplementing this:
 

@@ -89,20 +89,30 @@ def apply_overrides(cfg, args):
 
 
 def cmd_list_devices():
+    from .protocol import COMPX_REPORT_LENGTH
+
     devices = enumerate_devices()
     if not devices:
         print("No HID interface detected.")
         return 1
-    print("%-9s %-9s %-11s %-7s %s" %
-          ("VID", "PID", "USAGE", "FEATURE", "PRODUCT"))
-    print("-" * 78)
+    print("%-9s %-9s %-11s %-5s %-5s %-8s %s" %
+          ("VID", "PID", "USAGE", "IN", "OUT", "FEATURE", "PRODUCT"))
+    print("-" * 88)
     for info in sorted(devices, key=lambda i: (i.vendor_id, i.product_id)):
-        marker = "  <-- candidate" if (info.feature_length or 0) >= 65 else ""
-        print("0x%04X    0x%04X    %04X:%04X   %-7s %s%s" %
+        marker = ""
+        if (info.feature_length or 0) >= 65:
+            marker = "  <-- feature"
+        elif (info.input_length == COMPX_REPORT_LENGTH
+              and info.output_length == COMPX_REPORT_LENGTH
+              and (info.usage_page or 0) >= 0xFF00):
+            marker = "  <-- compx"
+        print("0x%04X    0x%04X    %04X:%04X   %-5d %-5d %-8d %s%s" %
               (info.vendor_id, info.product_id, info.usage_page, info.usage,
-               info.feature_length or 0, (info.product or "")[:34], marker))
-    print("\nRows marked 'candidate' expose a feature report of 65+ bytes, "
-          "which is\nthe vendor interface the protocol runs on.")
+               info.input_length or 0, info.output_length or 0,
+               info.feature_length or 0, (info.product or "")[:26], marker))
+    print("\nMarked rows are the vendor interface a protocol runs on:")
+    print("  feature  65+ byte feature report  (Fenrir/Lycan Asym and kin)")
+    print("  compx    17-byte in and out       (Receiver RS and kin)")
     return 0
 
 
@@ -111,8 +121,10 @@ def cmd_once(cfg):
     if status is None:
         print("Mouse not found or powered off.", file=sys.stderr)
         return 1
-    print("Battery: %d%%%s" % (status.percent,
-                               "  (charging)" if status.charging else ""))
+    extra = "  (charging)" if status.charging else ""
+    if status.voltage_mv:
+        extra += "  %.3f V" % (status.voltage_mv / 1000.0)
+    print("Battery: %d%%%s" % (status.percent, extra))
     return 0
 
 
@@ -122,23 +134,35 @@ def _hex(frame, count=12):
 
 def cmd_raw(cfg):
     from .protocol import find_device, read_raw
-    info = find_device(cfg)
+    info, protocol = find_device(cfg)
     if info is None:
         print("Mouse not found or powered off.", file=sys.stderr)
         return 1
-    frame = read_raw(cfg, info)
+    frame = read_raw(cfg, info, protocol)
     if frame is None:
         print("Device found but it did not answer.", file=sys.stderr)
         return 1
-    print("device: 0x%04X:0x%04X  %s" % (info.vendor_id, info.product_id,
-                                         info.product or ""))
-    print("raw   : %s" % _hex(frame, 16))
-    print("index :  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15")
-    print("\nheader   raw[1] = 0x%02X" % frame[1])
-    print("echo     raw[6] = 0x%02X" % frame[6])
-    print("raw[7]          = %d   (%s)"
-          % (frame[7], "charging" if frame[7] else "on battery"))
-    print("raw[8]          = %d   (battery percentage)" % frame[8])
+
+    print("device  : 0x%04X:0x%04X  %s" % (info.vendor_id, info.product_id,
+                                           info.product or ""))
+    print("protocol: %s   (usage %04X:%04X)"
+          % (protocol, info.usage_page, info.usage))
+    print("raw     : %s" % _hex(frame, 16))
+    print("index   :  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15")
+    print()
+    if protocol == "compx":
+        print("echo     raw[1] = 0x%02X" % frame[1])
+        print("raw[6]          = %d   (battery percentage)" % frame[6])
+        print("raw[7]          = %d   (%s)"
+              % (frame[7], "charging" if frame[7] else "on battery"))
+        print("raw[8..9]       = %d mV (battery voltage)"
+              % ((frame[8] << 8) | frame[9]))
+    else:
+        print("header   raw[1] = 0x%02X" % frame[1])
+        print("echo     raw[6] = 0x%02X" % frame[6])
+        print("raw[7]          = %d   (%s)"
+              % (frame[7], "charging" if frame[7] else "on battery"))
+        print("raw[8]          = %d   (battery percentage)" % frame[8])
     return 0
 
 
@@ -161,8 +185,7 @@ def cmd_watch_raw(cfg, duration):
             if frame is None:
                 print("%s  no response (mouse asleep?)" % stamp)
             else:
-                print("%s  %s   -> [7]=%-3d [8]=%-3d"
-                      % (stamp, _hex(frame), frame[7], frame[8]))
+                print("%s  %s" % (stamp, _hex(frame, 16)))
                 samples.append(bytes(frame[:16]))
             time.sleep(interval)
     except KeyboardInterrupt:
@@ -194,8 +217,10 @@ def cmd_watch(cfg):
             if status is None:
                 print("%s  --  (unavailable)" % stamp)
             else:
-                print("%s  %3d%%%s" % (stamp, status.percent,
-                                       "  charging" if status.charging else ""))
+                extra = "  charging" if status.charging else ""
+                if status.voltage_mv:
+                    extra += "  %.3f V" % (status.voltage_mv / 1000.0)
+                print("%s  %3d%%%s" % (stamp, status.percent, extra))
             time.sleep(interval)
     except KeyboardInterrupt:
         return 0

@@ -11,8 +11,8 @@ talking to the mouse's vendor interface.
 
 - **No dependencies.** Python 3.7+ and its standard library, nothing else.
   No `hidapi`, no `pywin32`, no compiler.
-- **Read-only.** A single command is ever sent, `0x83`, the same one the
-  official driver uses. The device is never written to.
+- **Read-only.** Only a battery-read command is ever sent, the same one the
+  official driver uses. No setting, firmware or bootloader command is issued.
 - **Keeps reading while charging.** Plugging the cable in makes the mouse
   switch product ID and drop its dongle, which is enough to blind a tool that
   only knows the wireless one. Both are tried, so the level stays visible and
@@ -20,8 +20,8 @@ talking to the mouse's vendor interface.
 - **Fully configurable**: VID/PID, colours, thresholds, style, position,
   interval — through a config file or the command line.
 
-The protocol, undocumented publicly until now, is written up in
-[`docs/PROTOCOL.md`](docs/PROTOCOL.md).
+Both protocol families these mice use, undocumented publicly until now, are
+written up in [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
 
 ## Requirements
 
@@ -53,14 +53,28 @@ pythonw overlay.pyw
 
 ## Tested hardware
 
-| Mouse | Status |
-|---|---|
-| G-Wolves Fenrir / Lycan Asym 8K (`0x33E4:0x3517` dongle, `0x33E4:0x3508` wired) | reference device, wireless and charging both verified |
-| HSK Pro | reported working by a user |
+| Mouse | VID:PID | Protocol | Status |
+|---|---|---|---|
+| G-Wolves Fenrir / Lycan Asym 8K | `0x33E4:0x3517` dongle, `0x33E4:0x3508` wired | `feature` | verified, wireless and charging |
+| G-Wolves Fenrir Pro (Receiver RS) | `0x33E4:0x3854` | `compx` | verified, reports voltage too |
+| HSK Pro | — | `feature` | reported working by a user |
 
 `mouse.xyz` is a white-label driver shared by several brands, so other models
 are likely to work. If yours does, a pull request adding it to this table is
 welcome.
+
+### Two protocols
+
+Devices split into two families that share nothing but the vendor:
+
+- **`feature`** — a 65-byte feature report carries the request and the reply.
+- **`compx`** — 17-byte interrupt reports under report ID 8, with a checksum,
+  and the reply arrives asynchronously as an input report. These devices also
+  report the **battery voltage in mV**.
+
+`protocol` defaults to `auto`, which picks the right one from the HID
+descriptors, so there is normally nothing to set. `--list-devices` labels each
+candidate interface with the family it belongs to.
 
 ## Your mouse is not detected?
 
@@ -73,17 +87,17 @@ The defaults target `0x33E4:0x3517`. For any other model:
 python -m gwolves_battery --list-devices
 ```
 
-Rows marked `<-- candidate` expose a feature report of 65 bytes or more, which
-is the vendor interface the protocol runs on. Then retry with your own
-identifiers:
+Marked rows are the vendor interface a protocol runs on — `<-- feature` for a
+65-byte feature report, `<-- compx` for 17-byte input and output reports. Then
+retry with your own identifiers:
 
 ```bash
 python -m gwolves_battery --vid 0xXXXX --pid 0xYYYY --once
 ```
 
-If that works, save them in your configuration. If the mouse stays silent, the
-"Variants not implemented" section of [`docs/PROTOCOL.md`](docs/PROTOCOL.md)
-describes two other protocol families found in the driver.
+If that works, save them in your configuration. If the mouse stays silent,
+section 7 of [`docs/PROTOCOL.md`](docs/PROTOCOL.md) describes a third, legacy
+protocol family found in the driver but not implemented here.
 
 ## Configuration
 
@@ -97,7 +111,8 @@ with its default.
 | Key | Default | Description |
 |---|---|---|
 | `vendor_id` | `"0x33E4"` | Vendor ID. Accepts `"0x33E4"` or `13284`. |
-| `product_id` | `["0x3517", "0x3508"]` | Product ID, or a list tried in order. A mouse usually changes ID when plugged in: `0x3517` is the dongle, `0x3508` wired. |
+| `product_id` | `["0x3517", "0x3508", "0x3854"]` | Product ID, or a list tried in order. A mouse usually changes ID when plugged in: `0x3517` is the dongle, `0x3508` wired. |
+| `protocol` | `"auto"` | `auto`, `feature` or `compx`. `auto` detects the family from the HID descriptors. |
 | `feature_report_length` | `65` | Feature report size, report ID included. |
 | `device_id` | `2` | Protocol `deviceID` byte. `2` is the mouse. |
 
@@ -186,8 +201,8 @@ Delete the shortcut to disable it.
 
 The protocol includes destructive commands, notably `0xB0` (enter bootloader)
 and the firmware-writing routines. **This project does not use them.** The only
-frame it sends is `0x83`, a read, identical to the one the official driver
-sends on every "Refresh" click.
+frames it sends are battery reads — `0x83` for the `feature` family, `0x04` for
+`compx` — identical to what the official driver sends on every "Refresh" click.
 
 If you explore the protocol yourself, never sweep command numbers at random on
 a real device.

@@ -14,8 +14,12 @@ DEFAULTS = {
         # A mouse usually changes product ID when plugged in: it stops
         # answering through its dongle and enumerates in wired mode instead.
         # Candidates are tried in order; a single value is also accepted.
-        #   0x3517 = 2.4 GHz dongle, 0x3508 = wired
-        "product_id": ["0x3517", "0x3508"],
+        #   0x3517 = 2.4 GHz dongle, 0x3508 = wired (Fenrir/Lycan Asym 8K)
+        #   0x3854 = Receiver RS dongle (Fenrir Pro), compx protocol
+        "product_id": ["0x3517", "0x3508", "0x3854"],
+        # "auto" picks whichever family the device answers: "feature"
+        # (65-byte feature reports) or "compx" (17-byte interrupt reports).
+        "protocol": "auto",
         # HID feature report size, report ID included. 65 = 1 + 64.
         "feature_report_length": 65,
         # Protocol deviceID byte (payload[2]). 2 means the mouse itself.

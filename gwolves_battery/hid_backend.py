@@ -81,6 +81,36 @@ kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWOR
 kernel32.CreateFileW.restype = wintypes.HANDLE
 kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 
+FILE_FLAG_OVERLAPPED = 0x40000000
+ERROR_IO_PENDING = 997
+WAIT_OBJECT_0 = 0
+
+
+class OVERLAPPED(C.Structure):
+    _fields_ = [("Internal", C.c_void_p), ("InternalHigh", C.c_void_p),
+                ("Offset", wintypes.DWORD), ("OffsetHigh", wintypes.DWORD),
+                ("hEvent", wintypes.HANDLE)]
+
+
+kernel32.CreateEventW.argtypes = [C.c_void_p, wintypes.BOOL, wintypes.BOOL,
+                                  wintypes.LPCWSTR]
+kernel32.CreateEventW.restype = wintypes.HANDLE
+kernel32.WriteFile.argtypes = [wintypes.HANDLE, C.c_void_p, wintypes.DWORD,
+                               C.POINTER(wintypes.DWORD), C.c_void_p]
+kernel32.WriteFile.restype = wintypes.BOOL
+kernel32.ReadFile.argtypes = [wintypes.HANDLE, C.c_void_p, wintypes.DWORD,
+                              C.POINTER(wintypes.DWORD), C.c_void_p]
+kernel32.ReadFile.restype = wintypes.BOOL
+kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+kernel32.WaitForSingleObject.restype = wintypes.DWORD
+kernel32.CancelIo.argtypes = [wintypes.HANDLE]
+kernel32.ResetEvent.argtypes = [wintypes.HANDLE]
+kernel32.ResetEvent.restype = wintypes.BOOL
+kernel32.GetOverlappedResult.argtypes = [wintypes.HANDLE, C.c_void_p,
+                                         C.POINTER(wintypes.DWORD),
+                                         wintypes.BOOL]
+kernel32.GetOverlappedResult.restype = wintypes.BOOL
+
 # Without an explicit restype, ctypes truncates the 64-bit handle to a signed
 # 32-bit int and enumeration silently returns no devices.
 setupapi.SetupDiGetClassDevsW.argtypes = [C.POINTER(GUID), wintypes.LPCWSTR,
@@ -100,7 +130,8 @@ setupapi.SetupDiDestroyDeviceInfoList.restype = wintypes.BOOL
 
 class DeviceInfo(object):
     __slots__ = ("path", "vendor_id", "product_id", "usage_page", "usage",
-                 "feature_length", "input_length", "product", "manufacturer")
+                 "feature_length", "input_length", "output_length",
+                 "product", "manufacturer")
 
     def __init__(self, **kw):
         for k in self.__slots__:
@@ -137,13 +168,20 @@ def _interface_paths():
     return paths
 
 
-def _open_handle(path):
+def _open_handle(path, overlapped=False):
     """Windows denies GENERIC_READ|WRITE on mouse/keyboard collections;
-    zero access is enough for HidD_GetFeature / HidD_SetFeature."""
-    for access in (GENERIC_READ | GENERIC_WRITE, 0):
+    zero access is enough for HidD_GetFeature / HidD_SetFeature.
+
+    `overlapped` is required to read input reports with a timeout, and needs
+    real read/write access, so no zero-access fallback applies there.
+    """
+    flags = FILE_FLAG_OVERLAPPED if overlapped else 0
+    accesses = (GENERIC_READ | GENERIC_WRITE,) if overlapped \
+        else (GENERIC_READ | GENERIC_WRITE, 0)
+    for access in accesses:
         handle = kernel32.CreateFileW(path, access,
                                       FILE_SHARE_READ | FILE_SHARE_WRITE, None,
-                                      OPEN_EXISTING, 0, None)
+                                      OPEN_EXISTING, flags, None)
         if handle and handle != INVALID_HANDLE_VALUE:
             return handle
     return None
@@ -168,6 +206,7 @@ def _describe(handle, path):
                       usage=caps.Usage,
                       feature_length=caps.FeatureReportByteLength,
                       input_length=caps.InputReportByteLength,
+                      output_length=caps.OutputReportByteLength,
                       product=product.value, manufacturer=maker.value)
 
 
@@ -200,24 +239,90 @@ def find_control_interface(vendor_id, product_id, feature_length):
     return None
 
 
-class HidDevice(object):
-    """Context manager around a HID handle."""
+def find_io_interface(vendor_id, product_id, report_length):
+    """Vendor interface exchanging input/output reports of `report_length`.
 
-    def __init__(self, path):
+    Used by devices that talk over interrupt reports instead of feature
+    reports. Vendor usage pages start at 0xFF00.
+    """
+    for info in enumerate_devices(vendor_id, product_id):
+        if (info.input_length == report_length
+                and info.output_length == report_length
+                and (info.usage_page or 0) >= 0xFF00):
+            return info
+    return None
+
+
+class HidDevice(object):
+    """Context manager around a HID handle.
+
+    Pass `overlapped=True` to exchange input/output reports; the default
+    suffices for feature reports.
+    """
+
+    def __init__(self, path, overlapped=False):
         self.path = path
+        self.overlapped = overlapped
         self._handle = None
+        self._event = None
 
     def __enter__(self):
-        self._handle = _open_handle(self.path)
+        self._handle = _open_handle(self.path, self.overlapped)
         if not self._handle:
             raise OSError("Cannot open device: %s" % self.path)
+        if self.overlapped:
+            self._event = kernel32.CreateEventW(None, True, False, None)
         return self
 
     def __exit__(self, *exc):
         if self._handle:
+            if self.overlapped:
+                kernel32.CancelIo(self._handle)
             kernel32.CloseHandle(self._handle)
             self._handle = None
+        if self._event:
+            kernel32.CloseHandle(self._event)
+            self._event = None
         return False
+
+    def write_output(self, data, timeout_ms=1000):
+        """Send an output report. `data` starts with the report ID."""
+        buf = C.create_string_buffer(bytes(data), len(data))
+        ov = OVERLAPPED()
+        ov.hEvent = kernel32.CreateEventW(None, True, False, None)
+        try:
+            ok = kernel32.WriteFile(self._handle, buf, len(data), None,
+                                    C.byref(ov))
+            if not ok and kernel32.GetLastError() != ERROR_IO_PENDING:
+                return False
+            return kernel32.WaitForSingleObject(ov.hEvent,
+                                                timeout_ms) == WAIT_OBJECT_0
+        finally:
+            kernel32.CloseHandle(ov.hEvent)
+
+    def begin_read(self, length):
+        """Arm a read before writing, so a fast reply cannot be missed."""
+        pending = {"buf": C.create_string_buffer(length),
+                   "ov": OVERLAPPED(), "len": length}
+        kernel32.ResetEvent(self._event)
+        pending["ov"].hEvent = self._event
+        ok = kernel32.ReadFile(self._handle, pending["buf"], length, None,
+                               C.byref(pending["ov"]))
+        if not ok and kernel32.GetLastError() != ERROR_IO_PENDING:
+            return None
+        return pending
+
+    def finish_read(self, pending, timeout_ms=200):
+        """Wait for an armed read. Returns the report, or None on timeout."""
+        if kernel32.WaitForSingleObject(self._event,
+                                        timeout_ms) != WAIT_OBJECT_0:
+            return None
+        read = wintypes.DWORD(0)
+        if not kernel32.GetOverlappedResult(self._handle,
+                                            C.byref(pending["ov"]),
+                                            C.byref(read), False):
+            return None
+        return bytearray(pending["buf"].raw[:read.value])
 
     def set_feature(self, data):
         buf = C.create_string_buffer(bytes(data), len(data))

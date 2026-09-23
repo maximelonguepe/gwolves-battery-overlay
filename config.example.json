@@ -1,7 +1,8 @@
 {
   "device": {
     "vendor_id": "0x33E4",
-    "product_id": ["0x3517", "0x3508"],
+    "product_id": ["0x3517", "0x3508", "0x3854"],
+    "protocol": "auto",
     "feature_report_length": 65,
     "device_id": 2
   },
