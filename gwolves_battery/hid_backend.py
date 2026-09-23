@@ -265,6 +265,8 @@ class HidDevice(object):
         self.overlapped = overlapped
         self._handle = None
         self._event = None
+        # Holds the buffer and OVERLAPPED of a read still owned by the kernel.
+        self._pending = None
 
     def __enter__(self):
         self._handle = _open_handle(self.path, self.overlapped)
@@ -276,14 +278,29 @@ class HidDevice(object):
 
     def __exit__(self, *exc):
         if self._handle:
-            if self.overlapped:
-                kernel32.CancelIo(self._handle)
+            self._drop_pending()
             kernel32.CloseHandle(self._handle)
             self._handle = None
         if self._event:
             kernel32.CloseHandle(self._event)
             self._event = None
         return False
+
+    def _drop_pending(self):
+        """Cancel an outstanding read and wait for the kernel to be done.
+
+        CancelIo only *requests* cancellation. Releasing the buffer before the
+        operation has actually finished lets the kernel write into freed
+        memory, which crashes the process.
+        """
+        if self._pending is None:
+            return
+        kernel32.CancelIo(self._handle)
+        read = wintypes.DWORD(0)
+        kernel32.GetOverlappedResult(self._handle,
+                                     C.byref(self._pending["ov"]),
+                                     C.byref(read), True)
+        self._pending = None
 
     def write_output(self, data, timeout_ms=1000):
         """Send an output report. `data` starts with the report ID."""
@@ -301,7 +318,12 @@ class HidDevice(object):
             kernel32.CloseHandle(ov.hEvent)
 
     def begin_read(self, length):
-        """Arm a read before writing, so a fast reply cannot be missed."""
+        """Arm a read before writing, so a fast reply cannot be missed.
+
+        The buffer is kept on the instance, not returned, so it cannot be
+        collected while the kernel still owns it.
+        """
+        self._drop_pending()
         pending = {"buf": C.create_string_buffer(length),
                    "ov": OVERLAPPED(), "len": length}
         kernel32.ResetEvent(self._event)
@@ -309,15 +331,23 @@ class HidDevice(object):
         ok = kernel32.ReadFile(self._handle, pending["buf"], length, None,
                                C.byref(pending["ov"]))
         if not ok and kernel32.GetLastError() != ERROR_IO_PENDING:
-            return None
-        return pending
+            return False
+        self._pending = pending
+        return True
 
-    def finish_read(self, pending, timeout_ms=200):
-        """Wait for an armed read. Returns the report, or None on timeout."""
+    def finish_read(self, timeout_ms=200):
+        """Wait for the armed read. Returns the report, or None on timeout.
+
+        On timeout the read stays armed, so calling again simply keeps
+        waiting; the buffer remains owned by the instance throughout.
+        """
+        if self._pending is None:
+            return None
         if kernel32.WaitForSingleObject(self._event,
                                         timeout_ms) != WAIT_OBJECT_0:
             return None
         read = wintypes.DWORD(0)
+        pending, self._pending = self._pending, None
         if not kernel32.GetOverlappedResult(self._handle,
                                             C.byref(pending["ov"]),
                                             C.byref(read), False):

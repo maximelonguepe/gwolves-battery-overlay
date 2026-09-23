@@ -1,5 +1,7 @@
 """Borderless always-on-top overlay window."""
+import os
 import threading
+import time
 import tkinter as tk
 import tkinter.font as tkfont
 
@@ -10,6 +12,10 @@ from .protocol import read_battery
 TRANSPARENT_KEY = "#010203"
 
 STYLES = ("pill", "ring", "minimal")
+
+# Shorter wait after a failed read, so a mouse that was merely
+# asleep shows up again quickly instead of after a full interval.
+RETRY_SECONDS = 15
 
 
 class Overlay(object):
@@ -126,19 +132,43 @@ class Overlay(object):
 
     # ------------------------------------------------------------- polling
 
+    def _log(self, message):
+        """Append a line to the debug log when GWB_DEBUG is set.
+
+        Running under pythonw means no console and no traceback, so a failing
+        poll is otherwise completely silent.
+        """
+        if not os.environ.get("GWB_DEBUG"):
+            return
+        try:
+            path = os.path.join(os.path.dirname(cfgmod.default_config_path()),
+                                "debug.log")
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write("%s  %s\n" % (time.strftime("%H:%M:%S"), message))
+        except OSError:
+            pass
+
     def _poll_loop(self):
         while True:
             try:
                 status = read_battery(self.cfg)
-            except Exception:
+                self._log("read -> %r" % (status,))
+            except Exception as exc:
                 status = None
+                self._log("read raised %s: %s" % (type(exc).__name__, exc))
             with self._lock:
                 if status is None:
                     self.state["percent"] = None
                 else:
                     self.state["percent"] = status.percent
                     self.state["charging"] = status.charging
+
             interval = max(5, int(self.cfg["polling"]["interval_seconds"]))
+            if status is None:
+                # A sleeping mouse is the usual cause, and it wakes on the
+                # first move. Waiting a full interval would leave "--" on
+                # screen long after the mouse came back.
+                interval = min(interval, RETRY_SECONDS)
             self._wake.wait(timeout=interval)
             self._wake.clear()
 

@@ -207,6 +207,25 @@ frames it sends are battery reads — `0x83` for the `feature` family, `0x04` fo
 If you explore the protocol yourself, never sweep command numbers at random on
 a real device.
 
+## Debugging a silent overlay
+
+`pythonw` has no console, so a failing poll leaves no trace. Set `GWB_DEBUG=1`
+and the overlay appends every poll result to
+`%LOCALAPPDATA%\gwolves-battery\debug.log`:
+
+```bash
+set GWB_DEBUG=1 && pythonw overlay.pyw
+```
+
+```
+18:17:55  read -> BatteryStatus(percent=90, charging=False, voltage_mv=4063)
+18:18:05  read -> None
+```
+
+`None` almost always means the mouse is asleep. After a failed read the
+overlay retries in 15 s instead of waiting a full interval, so it recovers
+shortly after the mouse wakes.
+
 ## Known limitations
 
 - **A sleeping mouse reads as absent.** There is no way to tell "asleep" from

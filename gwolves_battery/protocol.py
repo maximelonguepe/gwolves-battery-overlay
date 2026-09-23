@@ -147,22 +147,20 @@ def _read_compx(cfg, info, want_raw=False):
         with HidDevice(info.path, overlapped=True) as handle:
             for _ in range(max(1, int(poll["retries"]))):
                 # Arm the read first: the reply can land before write returns.
-                pending = handle.begin_read(COMPX_REPORT_LENGTH)
-                if pending is None:
+                if not handle.begin_read(COMPX_REPORT_LENGTH):
                     return None
                 if not handle.write_output(request):
                     return None
                 waited = 0
                 while waited < deadline_ms:
-                    raw = handle.finish_read(pending, 50)
+                    raw = handle.finish_read(50)
                     waited += 50
                     if raw is None:
-                        continue
+                        continue  # still armed, keep waiting
                     if len(raw) >= 2 and raw[1] == COMPX_CMD_BATTERY:
                         return raw if want_raw else compx_parse(raw)
                     # Unrelated traffic on this interface: keep listening.
-                    pending = handle.begin_read(COMPX_REPORT_LENGTH)
-                    if pending is None:
+                    if not handle.begin_read(COMPX_REPORT_LENGTH):
                         break
     except OSError:
         return None
