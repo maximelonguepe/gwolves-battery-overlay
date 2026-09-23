@@ -31,6 +31,10 @@ DEFAULTS = {
         "retries": 4,
         # Wait between sending the command and reading the reply.
         "response_delay_ms": 100,
+        # A silent-but-present device means a sleeping mouse, whose
+        # battery is not moving. Keep showing the last reading until
+        # it is this old, rather than dropping to "--".
+        "stale_after_seconds": 3600,
     },
     "overlay": {
         "style": "pill",          # pill | ring | minimal

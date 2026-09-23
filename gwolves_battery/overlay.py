@@ -6,7 +6,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 
 from . import config as cfgmod
-from .protocol import read_battery
+from .protocol import find_device, read_battery
 
 # Key colour Windows renders fully transparent.
 TRANSPARENT_KEY = "#010203"
@@ -22,7 +22,7 @@ class Overlay(object):
     def __init__(self, cfg, config_path=None):
         self.cfg = cfg
         self.config_path = config_path
-        self.state = {"percent": None, "charging": False}
+        self.state = {"percent": None, "charging": False, "last_ok": 0}
         self._lock = threading.Lock()
         self._wake = threading.Event()
 
@@ -150,24 +150,38 @@ class Overlay(object):
 
     def _poll_loop(self):
         while True:
+            status, present = None, False
             try:
-                status = read_battery(self.cfg)
-                self._log("read -> %r" % (status,))
+                info, proto = find_device(self.cfg)
+                present = info is not None
+                if present:
+                    status = read_battery(self.cfg, info, proto)
+                self._log("device=%s protocol=%s -> %r" % (
+                    "%04X:%04X" % (info.vendor_id, info.product_id)
+                    if info else None, proto, status))
             except Exception as exc:
-                status = None
-                self._log("read raised %s: %s" % (type(exc).__name__, exc))
+                self._log("poll raised %s: %s" % (type(exc).__name__, exc))
+
             with self._lock:
-                if status is None:
-                    self.state["percent"] = None
-                else:
+                if status is not None:
                     self.state["percent"] = status.percent
                     self.state["charging"] = status.charging
+                    self.state["last_ok"] = time.time()
+                elif not present:
+                    # No dongle at all: we genuinely do not know.
+                    self.state["percent"] = None
+                    self.state["charging"] = False
+                else:
+                    # Device there but silent, i.e. the mouse is asleep. Its
+                    # battery is not moving, so the last reading still holds;
+                    # dropping to "--" would discard a perfectly good value.
+                    age = time.time() - (self.state.get("last_ok") or 0)
+                    if age > float(self.cfg["polling"]["stale_after_seconds"]):
+                        self.state["percent"] = None
+                        self.state["charging"] = False
 
             interval = max(5, int(self.cfg["polling"]["interval_seconds"]))
             if status is None:
-                # A sleeping mouse is the usual cause, and it wakes on the
-                # first move. Waiting a full interval would leave "--" on
-                # screen long after the mouse came back.
                 interval = min(interval, RETRY_SECONDS)
             self._wake.wait(timeout=interval)
             self._wake.clear()

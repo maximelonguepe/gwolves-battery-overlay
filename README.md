@@ -123,6 +123,7 @@ with its default.
 | `interval_seconds` | `120` | Delay between two reads. |
 | `retries` | `4` | Exchanges attempted before giving up on a read. |
 | `response_delay_ms` | `100` | Wait between command and reply. |
+| `stale_after_seconds` | `3600` | How long the last reading stays on screen while the mouse is asleep. |
 
 Every read travels over the 2.4 GHz link. A short interval queries the mouse
 more often; 120 s is a sensible compromise, as a battery does not move fast.
@@ -222,15 +223,18 @@ set GWB_DEBUG=1 && pythonw overlay.pyw
 18:18:05  read -> None
 ```
 
-`None` almost always means the mouse is asleep. After a failed read the
-overlay retries in 15 s instead of waiting a full interval, so it recovers
-shortly after the mouse wakes.
+A line with `device=...` but a `None` status means the dongle is there and
+the mouse is asleep; `device=None` means the dongle itself is gone. After a
+failed read the overlay retries in 15 s instead of waiting a full interval,
+so it catches the mouse soon after it wakes.
 
 ## Known limitations
 
-- **A sleeping mouse reads as absent.** There is no way to tell "asleep" from
-  "not there" over this protocol, so the overlay shows `--%` until the mouse
-  wakes up, then recovers on its own.
+- **A sleeping mouse cannot be read**, only inferred: the dongle is still
+  enumerated but nothing answers. The overlay keeps showing the last reading
+  in that case, since a sleeping mouse's battery does not move, and only
+  falls back to `--%` once that reading is older than `stale_after_seconds`
+  or the dongle itself disappears.
 - **Windows only.** The HID backend calls the Win32 API. A Linux port over
   `hidraw` would be straightforward but is not done.
 - **One device at a time.**
