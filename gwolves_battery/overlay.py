@@ -149,42 +149,65 @@ class Overlay(object):
             pass
 
     def _poll_loop(self):
-        while True:
-            status, present = None, False
-            try:
-                info, proto = find_device(self.cfg)
-                present = info is not None
-                if present:
-                    status = read_battery(self.cfg, info, proto)
-                self._log("device=%s protocol=%s -> %r" % (
-                    "%04X:%04X" % (info.vendor_id, info.product_id)
-                    if info else None, proto, status))
-            except Exception as exc:
-                self._log("poll raised %s: %s" % (type(exc).__name__, exc))
+        """Poll forever.
 
-            with self._lock:
-                if status is not None:
-                    self.state["percent"] = status.percent
-                    self.state["charging"] = status.charging
-                    self.state["last_ok"] = time.time()
-                elif not present:
-                    # No dongle at all: we genuinely do not know.
+        Every iteration is guarded: an exception escaping here would end the
+        thread for good, leaving the overlay stuck on "--" with no way back,
+        not even through "Refresh now". Nothing is worth that, so the loop
+        logs whatever went wrong and carries on.
+        """
+        self._log("poll thread started")
+        while True:
+            interval = RETRY_SECONDS
+            try:
+                interval = self._poll_once()
+            except Exception as exc:
+                self._log("poll iteration failed, %s: %s"
+                          % (type(exc).__name__, exc))
+            try:
+                self._wake.wait(timeout=interval)
+                self._wake.clear()
+            except Exception:
+                time.sleep(RETRY_SECONDS)
+
+    def _poll_once(self):
+        """Run one poll and update the state. Returns the wait before the next."""
+        status, present = None, False
+        try:
+            info, proto = find_device(self.cfg)
+            present = info is not None
+            if present:
+                status = read_battery(self.cfg, info, proto)
+            self._log("device=%s protocol=%s -> %r" % (
+                "%04X:%04X" % (info.vendor_id, info.product_id)
+                if info else None, proto, status))
+        except Exception as exc:
+            self._log("read raised %s: %s" % (type(exc).__name__, exc))
+
+        with self._lock:
+            if status is not None:
+                self.state["percent"] = status.percent
+                self.state["charging"] = status.charging
+                self.state["last_ok"] = time.time()
+            elif not present:
+                # No dongle at all: we genuinely do not know.
+                self.state["percent"] = None
+                self.state["charging"] = False
+            else:
+                # Device there but silent, i.e. the mouse is asleep. Its
+                # battery is not moving, so the last reading still holds;
+                # dropping to "--" would discard a perfectly good value.
+                age = time.time() - (self.state.get("last_ok") or 0)
+                stale = float(self.cfg["polling"].get("stale_after_seconds",
+                                                      3600))
+                if age > stale:
                     self.state["percent"] = None
                     self.state["charging"] = False
-                else:
-                    # Device there but silent, i.e. the mouse is asleep. Its
-                    # battery is not moving, so the last reading still holds;
-                    # dropping to "--" would discard a perfectly good value.
-                    age = time.time() - (self.state.get("last_ok") or 0)
-                    if age > float(self.cfg["polling"]["stale_after_seconds"]):
-                        self.state["percent"] = None
-                        self.state["charging"] = False
 
-            interval = max(5, int(self.cfg["polling"]["interval_seconds"]))
-            if status is None:
-                interval = min(interval, RETRY_SECONDS)
-            self._wake.wait(timeout=interval)
-            self._wake.clear()
+        interval = max(5, int(self.cfg["polling"]["interval_seconds"]))
+        if status is None:
+            interval = min(interval, RETRY_SECONDS)
+        return interval
 
     def _tick(self):
         self._draw()
