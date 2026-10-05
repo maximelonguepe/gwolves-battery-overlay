@@ -169,20 +169,34 @@ def _read_compx(cfg, info, want_raw=False):
 
 # ------------------------------------------------------------ dispatch
 
+def candidate_product_ids(cfg):
+    """Configured product IDs first, then any built-in default not listed.
+
+    Device support must not depend on a configuration file. A config written
+    before a model was added would otherwise keep that model undetectable
+    forever, with nothing on screen to explain why.
+    """
+    from .config import DEFAULTS, as_int_list
+
+    configured = as_int_list(cfg["device"]["product_id"])
+    known = as_int_list(DEFAULTS["device"]["product_id"])
+    return configured + [pid for pid in known if pid not in configured]
+
+
 def find_device(cfg):
     """Locate the control interface and the protocol it speaks.
 
-    Returns (DeviceInfo, protocol_name) or (None, None). Every configured
-    product ID is tried, since a mouse changes ID when plugged in.
+    Returns (DeviceInfo, protocol_name) or (None, None). Several product IDs
+    are tried, since a mouse changes ID when plugged in.
     """
-    from .config import as_int, as_int_list
+    from .config import as_int
 
     dev = cfg["device"]
     vid = as_int(dev["vendor_id"])
     flen = int(dev["feature_report_length"])
     wanted = str(dev.get("protocol", "auto")).lower()
 
-    for pid in as_int_list(dev["product_id"]):
+    for pid in candidate_product_ids(cfg):
         if wanted in ("auto", "feature"):
             info = find_control_interface(vid, pid, flen)
             if info is not None:

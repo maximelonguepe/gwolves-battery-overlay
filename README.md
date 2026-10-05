@@ -111,7 +111,7 @@ with its default.
 | Key | Default | Description |
 |---|---|---|
 | `vendor_id` | `"0x33E4"` | Vendor ID. Accepts `"0x33E4"` or `13284`. |
-| `product_id` | `["0x3517", "0x3508", "0x3854"]` | Product ID, or a list tried in order. A mouse usually changes ID when plugged in: `0x3517` is the dongle, `0x3508` wired. |
+| `product_id` | `["0x3517", "0x3508", "0x3854"]` | Product ID, or a list tried in order. A mouse usually changes ID when plugged in: `0x3517` is the dongle, `0x3508` wired. The built-in defaults are always tried as well, so a config written before a model was added still picks it up. |
 | `protocol` | `"auto"` | `auto`, `feature` or `compx`. `auto` detects the family from the HID descriptors. |
 | `feature_report_length` | `65` | Feature report size, report ID included. |
 | `device_id` | `2` | Protocol `deviceID` byte. `2` is the mouse. |
