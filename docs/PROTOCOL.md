@@ -14,7 +14,7 @@ one of them:
 | Family | Transport | Verified on |
 |---|---|---|
 | `feature` (sections 1–5) | 65-byte feature reports | G-Wolves Fenrir/Lycan Asym 8K — `0x33E4:0x3517` dongle, `0x33E4:0x3508` wired |
-| `compx` (section 6) | 17-byte interrupt reports, report ID 8 | G-Wolves Receiver RS — `0x33E4:0x3854` (Fenrir Pro) |
+| `compx` (section 6) | 17-byte interrupt reports, report ID 8 | G-Wolves Fenrir Pro — `0x33E4:0x3854` dongle, `0x33E4:0x3619` wired |
 
 Which one a device speaks is visible from its HID descriptors alone: the
 `feature` family exposes a 65-byte feature report, the `compx` family exposes
@@ -108,15 +108,16 @@ Plugging the USB cable in does not simply add a second connection: the mouse
 **stops answering through its dongle** and enumerates as a different product.
 On the reference hardware:
 
-| Connection | VID:PID |
-|---|---|
-| 2.4 GHz dongle | `0x33E4:0x3517` |
-| USB cable (wired) | `0x33E4:0x3508` |
+| Mouse | 2.4 GHz dongle | USB cable (wired) |
+|---|---|---|
+| Fenrir / Lycan Asym 8K | `0x33E4:0x3517` | `0x33E4:0x3508` |
+| Fenrir Pro | `0x33E4:0x3854` | `0x33E4:0x3619` |
 
 The dongle's interfaces disappear from enumeration entirely, so a tool that
 only knows the wireless PID goes silent the moment charging starts. The
-protocol itself is unchanged — same vendor interface, same `0x83` command,
-same response layout.
+protocol itself is unchanged — same vendor interface, same command, same
+response layout — and this holds for both families, so expect a second
+product ID for any model you add.
 
 This is why `product_id` accepts a list of candidates, tried in order.
 
